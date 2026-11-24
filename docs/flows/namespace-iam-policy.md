@@ -299,6 +299,36 @@ behavior.
 - [Agents](../reference/agents.md)
 - [API reference](../reference/api.md)
 
+## Care scoped PostgreSQL reads
+
+The database administrator provisions an independent `occ_care` login with no
+role memberships, then the migration owner runs
+[`care-scope-role.sql`](../../deploy/examples/care-scope-role.sql) after the
+[scope migration](../../migrations/0084_care_scope_rls.sql). The native
+controller and its workers keep the existing `occ_app` login and IAM flow.
+The scoped role can read selected metadata columns on the 12 protected tables.
+Credential payloads, configuration content, internal custody references, and
+the private scope maps stay with the controller or migration owner.
+
+Trusted provisioning records the Care workspace ID and its Enterprise Namespace
+in `occ.care_workspace_scope`, and the Care actor ID and its Enterprise
+principal in `occ.care_actor_scope`. It records each exact Agent assignment
+in `occ.care_agent_scope`, and optional direct Secret and credential-source
+assignments in `occ.care_secret_scope` and `occ.care_source_scope`. Agent
+revisions, configurations, and delivery metadata follow the assigned Agent.
+Saved connections, their custody metadata, and OAuth attempts follow their
+Enterprise principal. Link rows require both connected resources to be visible.
+
+Only the trusted request broker holds the `occ_care` credential. After
+authenticating the caller and resolving workspace membership, the broker
+borrows a connection and opens a read-only transaction. It issues the
+parameterized query `SELECT set_config('care.workspace_id', $1, true),
+set_config('care.actor_id', $2, true)` before querying scoped metadata, then
+commits or rolls back before returning the connection to the pool. The settings
+are broker assertions and must never come directly from request fields or
+arbitrary caller SQL. Missing or unmatched assertions return no rows.
+Native Console and HTTP routes continue to use the controller IAM flow.
+
 ## Manual Notes
 
 [keep this for the user to add notes. do not change between edits]

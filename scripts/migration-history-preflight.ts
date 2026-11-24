@@ -25,6 +25,7 @@ export type MigrationManifest = {
   ledgerCatalogs: { initialized: string; completed: string };
   compatibleLineages?: { providerCompleted?: { entries: ManifestEntry[] } };
   logicalRestoreCatalogs?: Record<string, unknown>;
+  careScopedCatalogs?: Record<string, string[]>;
 };
 
 type MigrationMetadata = {
@@ -76,6 +77,7 @@ function isMigrationManifest(value: Record<string, unknown>): value is Migration
     ledgerCatalogs,
     compatibleLineages,
     logicalRestoreCatalogs,
+    careScopedCatalogs,
   } = value;
   return (
     isManifestEntryList(entries) &&
@@ -93,7 +95,12 @@ function isMigrationManifest(value: Record<string, unknown>): value is Migration
         (compatibleLineages.providerCompleted === undefined ||
           (isRecord(compatibleLineages.providerCompleted) &&
             isManifestEntryList(compatibleLineages.providerCompleted.entries))))) &&
-    (logicalRestoreCatalogs === undefined || isRecord(logicalRestoreCatalogs))
+    (logicalRestoreCatalogs === undefined || isRecord(logicalRestoreCatalogs)) &&
+    (careScopedCatalogs === undefined ||
+      (isRecord(careScopedCatalogs) &&
+        Object.values(careScopedCatalogs).every(
+          (hashes) => Array.isArray(hashes) && hashes.every((hash) => typeof hash === "string"),
+        )))
   );
 }
 
@@ -204,6 +211,20 @@ async function requireMigrationRoles(client: MigrationSession): Promise<void> {
   }
 }
 
+async function requireIndependentCareRole(client: MigrationSession): Promise<void> {
+  const { rows } = await client.query<{ limited: boolean }>(`
+    SELECT login.rolcanlogin
+      AND NOT (login.rolsuper OR login.rolbypassrls OR login.rolcreaterole
+        OR login.rolcreatedb OR login.rolreplication)
+      AND NOT pg_catalog.has_database_privilege(login.oid, pg_catalog.current_database(), 'CREATE')
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE member = login.oid)
+      AS limited
+    FROM pg_catalog.pg_roles AS login WHERE login.rolname = 'occ_care'`);
+  if (rows[0]?.limited !== true) {
+    refuse("the Care scope role is not an independent unprivileged login");
+  }
+}
+
 export function receiptsMatchEntries(
   receipts: readonly MigrationReceipt[],
   entries: readonly ManifestEntry[],
@@ -297,7 +318,10 @@ export async function preflight(
   const actual = catalogDigest(await migrationCatalog(client));
   const aliases =
     typeof native === "string" ? manifest.logicalRestoreCatalogs?.[native] : undefined;
-  if (actual !== native && !(Array.isArray(aliases) && aliases.includes(actual))) {
+  const scoped = typeof native === "string" && manifest.careScopedCatalogs?.[native]?.includes(actual);
+  if (scoped) {
+    await requireIndependentCareRole(client);
+  } else if (actual !== native && !(Array.isArray(aliases) && aliases.includes(actual))) {
     refuse(`catalog objects or effective grants differ for ${shape}`);
   }
   if (shape === "providerCompleted" || shape === "backendCompleted") {
