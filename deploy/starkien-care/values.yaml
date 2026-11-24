@@ -1,0 +1,4 @@
+api:
+  consoleTheme:
+    configMapName: starkien-care-console-90943b12-81a5dc87
+    checksum: "90943b12897f-81a5dc87b9a3"

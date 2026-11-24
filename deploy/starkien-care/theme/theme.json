@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "displayName": "Starkien Care",
+  "logo": "care.png",
+  "favicon": "care.png",
+  "appleTouchIcon": "care.png",
+  "colors": {
+    "accent": "#A35530",
+    "accentHover": "#844224",
+    "accentSubtle": "#A3553020",
+    "onAccent": "#FFFFFF"
+  }
+}
