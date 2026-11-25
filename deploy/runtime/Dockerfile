@@ -1,6 +1,7 @@
 ARG OPENCLAW_COMMIT
 ARG OPENCLAW_SOURCE_SHA256
 ARG OPENCLAW_BUILD_TIMESTAMP
+ARG OCE_NODE_REPAIR_STAGE=node-compiled
 ARG NODE_BASE_IMAGE=docker.io/library/node:24.22.1-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a
 ARG NODE_RUNTIME_BASE_IMAGE=docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 
@@ -21,8 +22,29 @@ FROM node-source AS node-compiled
 ARG NODE_BUILD_JOBS=auto
 RUN --network=none sh /node-repair/build.sh
 
+# Railway can reuse the patched Node executable already built by Enterprise's
+# published native lane. This digest is the linux/amd64 runtime from successful
+# publication 44483296454, attempt 1. Keep the default source build for other
+# architectures. Copy only the executable and its provenance, then require the
+# same reviewed source/patch manifest and regression suite as the local build.
+FROM ghcr.io/openclaw/openclaw-enterprise-runtime@sha256:129a0b6fe8ecb1639b7c22073fa24ba0849c78d2b7f3c9ecf1ca9d38acd053c0 AS published-node-runtime
+FROM node-source AS node-published
+COPY --from=published-node-runtime /usr/local/bin/node /out/usr/local/bin/node
+COPY --from=published-node-runtime /usr/local/share/oce-node/ /out/usr/local/share/oce-node/
+COPY deploy/runtime/node/verify.mts /verification/node-verify.mts
+RUN --network=none set -eu; \
+    test "$(dpkg --print-architecture)" = amd64; \
+    cmp /node-repair/source.json /out/usr/local/share/oce-node/source.json; \
+    cp /out/usr/local/bin/node /usr/local/bin/node; \
+    cp -a /out/usr/local/share/oce-node /usr/local/share/; \
+    node /verification/node-verify.mts; \
+    sh /node-repair/test.sh /usr/local/bin/node /build/node; \
+    rm -rf /build/node
+
+FROM ${OCE_NODE_REPAIR_STAGE} AS node-repaired-output
+
 FROM node-build-base AS node-repaired-build-base
-COPY --from=node-compiled /out/ /
+COPY --from=node-repaired-output /out/ /
 
 FROM node-build-base AS curl-packages
 COPY deploy/runtime/curl /tmp/curl
@@ -465,7 +487,7 @@ RUN --mount=type=bind,source=deploy/runtime/node/source.json,target=/tmp/node-so
     set -eu; . /etc/os-release; \
     test "${VERSION_CODENAME:-}" = bookworm || { echo "The Node termination repair requires a Bookworm runtime base." >&2; exit 1; }; \
     node -e 'if (process.versions.node !== require("/tmp/node-source.json").version) throw new Error("Select matching Node bases for the reviewed termination repair; do not silently downgrade a newer override.")'
-COPY --from=node-compiled /out/ /
+COPY --from=node-repaired-output /out/ /
 
 ARG TARGETARCH
 ENV OPENAI_CODEX_VERSION=0.164.0
