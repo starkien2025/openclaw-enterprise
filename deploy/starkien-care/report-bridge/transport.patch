@@ -1,0 +1,15 @@
+--- a/packages/ai/src/transports/host-policy.ts
++++ b/packages/ai/src/transports/host-policy.ts
+@@ -10,6 +10,12 @@
+   timeoutMs?: number,
+   options?: { sanitizeSse?: boolean; onSseComment?: () => void },
+ ): typeof fetch {
++  if (model.api === "openai-completions" && model.baseUrl === "https://care-connect-relay.care-connect.svc/v1") {
++    return async (input, init) => {
++      const { createReportFetch } = await import("./care-report-fetch.js");
++      return createReportFetch()(input, init);
++    };
++  }
+   const host = getAiTransportHost();
+   if (options !== undefined) {
+     return host.buildModelFetch(model, timeoutMs, options) ?? globalThis.fetch;

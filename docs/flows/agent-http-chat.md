@@ -104,6 +104,55 @@ without message content. An audit-write failure emits `http.audit_append_failed`
 
 ## Debugging and Verification
 
+### Starkien Care report profile
+
+The Care worker submits a fresh single-user-message turn containing the signed
+receipt digest to the exact Agent. OCC pins the active revision through normal
+admission. The native Gateway generates the turn ID. The Care relay separately
+binds the verified Pod and ServiceAccount to the current job and receipt.
+
+Build the fork runtime using `deploy/runtime/Dockerfile`. Its pinned transport
+patch routes the exact `openai-completions` base URL
+`https://care-connect-relay.care-connect.svc/v1` through
+[`model-fetch.ts`](../../deploy/starkien-care/report-bridge/model-fetch.ts).
+Configure the embedded OpenClaw Harness to use the installation's model provider
+and the nonsecret model credential marker `care-connect-workload`. Select the
+report model, disable other model routes, tools, repository and channel access,
+and set the model's output limit to the approved Care maximum. Configure
+`drivers.compute.configuration.servicePrincipalCredentials` with mode
+`projectedServiceAccountToken`, audience `care-connect-report` and 900-second expiry.
+The transport opens the current projection for each POST, verifies the relay
+using the configured CA, and accepts only a bounded JSON or SSE reply.
+
+On Kubernetes 1.35, enable the `MutatingAdmissionPolicy` API server feature
+gate and `admissionregistration.k8s.io/v1beta1=true` runtime configuration.
+Apply the cluster's [admission policies](../../deploy/starkien-care/report-bridge/admission.yaml)
+before adopting an empty, restricted, dedicated tenant namespace. Only the
+cluster administrator may assign the `care.starkien.com/report-runtime=true`
+namespace label, manage admission or modify the relay namespace. Provision
+the [default deny](../../deploy/starkien-care/report-bridge/default-deny.yaml)
+in that tenant namespace and the operator-owned `care-connect-report-trust`
+ConfigMap with the public relay CA in `ca.crt`. Admission applies on writes.
+Check for preexisting workloads and egress policies before assigning the label.
+
+The private `care-connect-relay` Service uses port 443 and selects relay Pods
+in namespace `care-connect`, labelled `app.kubernetes.io/name=care-connect-relay`,
+on TCP/8443. The certificate must cover `care-connect-relay.care-connect.svc`.
+Provision relay ingress from the approved embedded Gateway Pods and restrict
+relay administration to the cluster owner. Embedded Gateway model egress is
+replaced with that peer; cluster DNS remains reachable. The validating policy
+rejects broader additive rules throughout this dedicated namespace.
+
+Run `node deploy/starkien-care/report-bridge/verify-admission.mjs CONTEXT NAMESPACE`
+after installing the policies. It tests the API server using dry-run requests.
+Qualify actual CNI traffic from a deployed Agent separately, including the
+allowed relay, public HTTPS, direct provider addresses, other tenant Pods and
+the Kubernetes API. Kubernetes NetworkPolicy has node-local exceptions. Verify
+node listeners, workload RBAC, IPv6 and selected CNI behavior on the target.
+The embedded startup model check sends its own connectivity prompt with a
+256-token cap. Record a relay-only readiness result separately from a metered,
+approved report via the deployed Agent and its original Care Inbox thread.
+
 - `node --test tests/integration/agent-http-chat.test.ts` checks Fastify and IAM
   admission only; it does not prove PostgreSQL or model execution.
 - Select `http-chat` in the [real QA matrix](../testing/ci/qa-advisory.md) for

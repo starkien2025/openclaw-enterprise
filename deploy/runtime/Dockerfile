@@ -226,6 +226,10 @@ RUN --mount=type=secret,id=build-ca,required=false \
       --config.supportedArchitectures.libc=glibc; \
     rm -rf /tmp/pnpm-store
 COPY --from=openclaw-source /source/ ./
+COPY deploy/starkien-care/report-bridge/model-fetch.ts packages/ai/src/transports/care-report-fetch.ts
+COPY deploy/starkien-care/report-bridge/transport.patch /tmp/care-report-transport.patch
+RUN echo '4bfaeb7732809acfeaeb133b9c55f5fdfe75479fa30a3db7fb2c5dae8382de6c  /tmp/care-report-transport.patch' | sha256sum --check --strict \
+    && git apply /tmp/care-report-transport.patch
 # Exercise the original caller through the public RPC before and after the
 # placement acknowledgment, including revocation, against this exact source.
 COPY deploy/runtime/openclaw-required-worker-authority-regression.patch /tmp/openclaw-required-worker-authority-regression.patch
