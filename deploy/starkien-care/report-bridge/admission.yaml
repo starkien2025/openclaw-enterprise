@@ -61,20 +61,23 @@ spec:
     - name: model-egress
       expression: >-
         object.metadata.name.matches('^allow-agent-runtime-[0-9a-f]{12}$') &&
-        has(object.spec.egress) && object.spec.egress.size() > 0
+        has(object.spec.egress) && object.spec.egress.size() == 1 &&
+        object.spec.egress.all(r, has(r.to) && r.to.size() == 1 &&
+          r.to.all(p, has(p.ipBlock) && p.ipBlock.cidr == '0.0.0.0/0') &&
+          has(r.ports) && r.ports.size() == 1 &&
+          r.ports.all(p, has(p.port) && p.port == 443 && p.protocol == 'TCP' && !has(p.endPort)))
   mutations:
     - patchType: JSONPatch
       jsonPatch:
         expression: >-
-          [JSONPatch{op:'replace',path:'/spec/egress',value:[
-            Object.spec.egress{
-              to:[Object.spec.egress.to{
-                namespaceSelector:Object.spec.egress.to.namespaceSelector{matchLabels:{'kubernetes.io/metadata.name':'care-connect'}},
-                podSelector:Object.spec.egress.to.podSelector{matchLabels:{'app.kubernetes.io/name':'care-connect-relay'}}
-              }],
-              ports:[Object.spec.egress.ports{protocol:'TCP',port:8443}]
-            }
-          ]}]
+          [
+            JSONPatch{op:'remove',path:'/spec/egress/0/to/0/ipBlock'},
+            JSONPatch{op:'add',path:'/spec/egress/0/to/0/namespaceSelector',
+              value:{'matchLabels':{'kubernetes.io/metadata.name':'care-connect'}}},
+            JSONPatch{op:'add',path:'/spec/egress/0/to/0/podSelector',
+              value:{'matchLabels':{'app.kubernetes.io/name':'care-connect-relay'}}},
+            JSONPatch{op:'replace',path:'/spec/egress/0/ports/0/port',value:8443}
+          ]
 ---
 apiVersion: admissionregistration.k8s.io/v1beta1
 kind: MutatingAdmissionPolicyBinding

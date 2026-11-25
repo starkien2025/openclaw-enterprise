@@ -28,7 +28,9 @@ const metadata = { namespace, name: "allow-agent-runtime-" + suffix };
 const broad = {
   apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata,
   spec: { podSelector: {}, policyTypes: ["Egress"], egress: [
-    { to: [{ ipBlock: { cidr: "0.0.0.0/0" } }], ports: [{ protocol: "TCP", port: 443 }] },
+    { to: [{ ipBlock: { cidr: "0.0.0.0/0", except: [
+      "10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+    ] } }], ports: [{ protocol: "TCP", port: 443 }] },
   ] },
 };
 const dryRun = ["create", "--dry-run=server", "-f", "-", "-o", "json"];
@@ -41,9 +43,12 @@ assert.deepEqual(rendered.spec.egress, [{
   }],
 }]);
 const unexpected = { ...broad, metadata: { ...metadata, name: "unexpected-" + suffix } };
-const refused = kubectl(dryRun, unexpected);
-assert.notEqual(refused.status, 0);
-assert.match(refused.stderr, /Care Connect permits only the private model relay/);
+const extraRule = { ...broad, spec: { ...broad.spec, egress: [...broad.spec.egress, {}] } };
+for (const invalid of [unexpected, extraRule]) {
+  const refused = kubectl(dryRun, invalid);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Care Connect permits only the private model relay/);
+}
 const pod = checked(dryRun, {
   apiVersion: "v1", kind: "Pod", metadata: {
     namespace, name: "care-report-probe-" + suffix, labels: { "openclaw.dev/workload-role": "gateway" },
